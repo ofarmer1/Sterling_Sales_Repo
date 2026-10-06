@@ -73,4 +73,5 @@ def discover_companies(ai, settings, count, exclude_names=()):
                 "sources": sources,
             }
         )
-    return candidates, result.usage
+    # The AI sometimes returns more than asked for; keep only what was asked.
+    return candidates[:count], result.usage

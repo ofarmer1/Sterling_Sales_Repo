@@ -89,6 +89,8 @@ def standard_fake_ai():
                 {"name": "Found Co", "website": "https://foundco.example", "reason": "SC SaaS firm",
                  "sources": ["https://example.com/list"]},
                 {"name": "No Source Co", "website": "", "reason": "made up", "sources": ["https://fake.example"]},
+                {"name": "Second Co", "website": "https://second.example", "reason": "Another SC firm",
+                 "sources": ["https://example.com/list"]},
             ]
         },
         ["https://example.com/list"],

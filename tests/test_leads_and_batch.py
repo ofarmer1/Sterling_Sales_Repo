@@ -217,7 +217,7 @@ def test_batch_is_capped():
 
 def test_discovery_drops_candidates_without_real_sources():
     candidates, usage = discover_companies(standard_fake_ai(), SETTINGS, 5)
-    assert [c["name"] for c in candidates] == ["Found Co"]
+    assert [c["name"] for c in candidates] == ["Found Co", "Second Co"]
     assert candidates[0]["reason"] == "SC SaaS firm"
 
 
@@ -238,3 +238,8 @@ def test_booking_link_is_always_in_the_email_when_set():
     assert once.count("https://cal.example/john") == 1
     # No link set: none invented.
     assert "http" not in add_signature("Hi", SETTINGS)
+
+
+def test_discovery_never_returns_more_than_asked():
+    candidates, _ = discover_companies(standard_fake_ai(), SETTINGS, 1)
+    assert len(candidates) == 1

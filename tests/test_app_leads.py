@@ -130,7 +130,7 @@ def test_discovery_adds_only_sourced_candidates(world):
     button(app, "Search for companies").click()
     app.run()
     names = [lead["name"] for lead in list_leads(db)]
-    assert names == ["Found Co"]
+    assert names == ["Found Co", "Second Co"]
     assert list_leads(db)[0]["source"] == "discovered"
 
 
@@ -159,7 +159,7 @@ def test_discovery_runs_end_to_end_with_no_companies_given(world):
     button(app, "Search for companies").click()
     app.run()
     leads = list_leads(db)
-    assert [lead["name"] for lead in leads] == ["Found Co"]
+    assert [lead["name"] for lead in leads] == ["Found Co", "Second Co"]
     lead = leads[0]
     assert lead["research"] and lead["qualification_result"]
     assert lead["email_body"] and lead["linkedin_note"]
