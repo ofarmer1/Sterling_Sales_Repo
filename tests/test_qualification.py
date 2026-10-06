@@ -80,15 +80,17 @@ def test_owner_without_ownership_evidence_needs_review():
 
 
 def test_non_tech_when_not_allowed_is_contradicted():
-    result = run({"allow_non_tech": False}, is_tech_company=fact("no"), industry=fact("Plumbing"))
+    result = run({"allow_non_tech": False}, is_tech_company=fact("no"), industry=fact("Plumbing"),
+                 what_they_sell=fact("Pipes"))
     assert result["result"] == DOES_NOT_MEET
 
 
 def test_strong_non_tech_fit_needs_a_person_to_decide():
     result = run(is_tech_company=fact("no"), industry=fact("Industrial supply"),
+                 what_they_sell=fact("Bearings"),
                  non_tech_fit_reason=fact("Has 10 outside sales reps"))
     assert result["result"] == NEEDS_REVIEW
-    assert "strong fit" in criterion(result, "Tech")["reason"]
+    assert "strong fit" in criterion(result, "Preferred industry")["reason"]
 
 
 def test_unverified_state_is_unknown():

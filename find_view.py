@@ -2,9 +2,9 @@
 
 import streamlit as st
 
-from batch import MAX_BATCH, NEEDS_RESEARCH, process_batch
+from batch import MAX_BATCH, needs_drafts, needs_research, needs_retry, process_batch
 from discovery import MAX_DISCOVERY, discover_companies
-from leads_store import LeadsStoreError, add_companies, list_leads, log_usage
+from leads_store import LeadsStoreError, add_companies, check_budget, list_leads, log_usage
 from leads_view import AI_SETUP_MESSAGE, flash
 
 # Rough cost per company, used only for the estimate shown before a batch.
@@ -76,6 +76,7 @@ def discover_section(db, ai, settings):
     if not st.button("Search for companies"):
         return
     try:
+        check_budget(db, getattr(ai, "budget_usd", None))
         existing = [lead["name"] for lead in list_leads(db)]
         with st.spinner("Searching... this can take a minute."):
             candidates, usage = discover_companies(ai, settings, int(count), existing)
@@ -104,8 +105,8 @@ def batch_section(db, ai, settings):
         return
 
     names = {lead["id"]: f"{lead['name']} ({lead['status']})" for lead in leads}
-    waiting = [lead["id"] for lead in leads if lead["status"] in NEEDS_RESEARCH]
-    failed = [lead["id"] for lead in leads if lead["status"] == "research failed"]
+    waiting = [lead["id"] for lead in leads if needs_research(lead) or needs_drafts(lead)]
+    failed = [lead["id"] for lead in leads if needs_retry(lead)]
 
     chosen = st.multiselect(
         f"Companies to process (up to {MAX_BATCH} at a time)",
@@ -116,9 +117,10 @@ def batch_section(db, ai, settings):
     )
     write_drafts = st.checkbox("Also write drafts for companies that might fit", value=True)
     redo = st.checkbox("Redo companies that are already researched (costs more)")
-    to_run = [i for i in chosen if redo or i in waiting]
+    by_id = {lead["id"]: lead for lead in leads}
+    to_run = [i for i in chosen if redo or needs_research(by_id[i])]
     st.caption(
-        f"{len(to_run)} will be researched. Rough cost: about "
+        f"{len(to_run)} will be researched (others only get missing drafts). Rough cost: about "
         f"${len(to_run) * ESTIMATED_COST_PER_COMPANY:.2f}."
     )
 
@@ -128,7 +130,7 @@ def batch_section(db, ai, settings):
 
     col1, col2 = st.columns(2)
     run = col1.button("Process selected", type="primary", disabled=not chosen)
-    retry = col2.button(f"Retry failed ({len(failed)})", disabled=not failed)
+    retry = col2.button(f"Retry failed or missing drafts ({len(failed)})", disabled=not failed)
     if not (run or retry):
         return
 
@@ -140,14 +142,14 @@ def batch_section(db, ai, settings):
 
     summary = process_batch(
         db, ai, settings, lead_ids,
-        write_drafts=write_drafts, redo=redo and not retry, on_progress=on_progress,
+        write_drafts=write_drafts or retry, redo=redo and not retry, on_progress=on_progress,
     )
     text = f"Done: {len(summary['done'])} finished, {len(summary['skipped'])} skipped, {len(summary['failed'])} failed."
     if summary["failed"]:
         st.warning(text)
         for name, error in summary["failed"]:
             st.error(f"{name}: {error}")
-        st.caption("Finished companies are saved. Use 'Retry failed' to try the others again.")
+        st.caption("Finished companies are saved. Use 'Retry failed or missing drafts' to try the others again.")
     else:
         flash(text)
         st.rerun()

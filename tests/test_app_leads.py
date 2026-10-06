@@ -117,7 +117,7 @@ def test_batch_with_failure_then_retry(world):
 
     ai.fail_for = set()
     app.run()  # refresh the page so the retry button shows the new count
-    button(app, "Retry failed (1)").click()
+    button(app, "Retry failed or missing drafts (1)").click()
     app.run()
     assert get_lead(db, 2)["status"] in ("researched", "draft ready")
     research_calls = [c for c in ai.calls if c[0] == "company_research"]
@@ -139,3 +139,15 @@ def test_export_button_present(world):
     add_companies(db, [{"name": "Acme"}])
     app = sign_in(make_app())
     assert app.get("download_button")
+
+
+def test_filter_narrows_table_and_download(world):
+    db, _ = world
+    add_companies(db, [{"name": "Acme"}, {"name": "Beta"}])
+    app = sign_in(make_app())
+    search = next(t for t in app.text_input if t.label == "Search company or owner name")
+    search.input("beta")
+    app.run()
+    assert any("Showing 1 of 2" in c.value for c in app.caption)
+    opener = next(s for s in app.selectbox if s.label == "Open a company")
+    assert len(opener.options) == 1

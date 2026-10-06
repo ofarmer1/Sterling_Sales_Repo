@@ -36,8 +36,37 @@ SAFETY_RULES = (
 )
 
 
+# Most we'll spend on AI in total, unless AI_BUDGET_USD is set in secrets.
+DEFAULT_BUDGET_USD = 25.00
+
+
 class AIError(Exception):
     """Raised when the AI request fails or returns something unusable."""
+
+
+def explain_error(error):
+    """Turn an OpenAI error into a plain message saying what to do."""
+    import openai
+
+    if isinstance(error, openai.AuthenticationError):
+        return "OpenAI rejected the API key. Check OPENAI_API_KEY in your secrets."
+    if isinstance(error, openai.PermissionDeniedError):
+        return "This OpenAI key isn't allowed to use that model or tool."
+    if isinstance(error, openai.RateLimitError):
+        if "quota" in str(error).lower():
+            return "The OpenAI account is out of credits. Add credits at platform.openai.com/settings/organization/billing."
+        return "OpenAI is busy (rate limit). Wait a minute and try again."
+    if isinstance(error, openai.APITimeoutError):
+        return "OpenAI took too long to answer. Try again."
+    if isinstance(error, openai.APIConnectionError):
+        return "Couldn't reach OpenAI. Check the internet connection and try again."
+    if isinstance(error, openai.NotFoundError):
+        return "OpenAI doesn't recognise the model name. Check OPENAI_MODEL in your secrets."
+    if isinstance(error, openai.BadRequestError):
+        return f"OpenAI didn't accept the request: {error}"
+    if isinstance(error, openai.InternalServerError):
+        return "OpenAI had a problem on their side. Try again in a few minutes."
+    return f"The AI request failed: {error}"
 
 
 @dataclass
@@ -69,12 +98,15 @@ class AIResult:
 
 
 class AIClient:
-    def __init__(self, api_key, model=DEFAULT_MODEL):
+    def __init__(self, api_key, model=DEFAULT_MODEL, budget_usd=DEFAULT_BUDGET_USD):
         # Imported here so the rest of the app works without the package.
         from openai import OpenAI
 
-        self.client = OpenAI(api_key=api_key, timeout=180)
+        # The OpenAI library retries brief outages and rate limits by itself
+        # (waiting longer each time); we allow 3 retries and 3 minutes per try.
+        self.client = OpenAI(api_key=api_key, timeout=180, max_retries=3)
         self.model = model
+        self.budget_usd = budget_usd
 
     def ask_json(self, instructions, prompt, schema, schema_name, web_search=False, max_searches=8):
         tools = []
@@ -103,7 +135,11 @@ class AIClient:
                 **extra,
             )
         except Exception as error:
-            raise AIError(f"The AI request failed: {error}") from error
+            raise AIError(explain_error(error)) from error
+
+        if getattr(response, "status", "completed") == "incomplete":
+            reason = getattr(getattr(response, "incomplete_details", None), "reason", "unknown")
+            raise AIError(f"The AI stopped before finishing ({reason}). Try again.")
 
         try:
             data = json.loads(response.output_text)

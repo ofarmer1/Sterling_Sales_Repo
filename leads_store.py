@@ -130,11 +130,16 @@ def save_research(db, lead_id, research, seen_urls, qualification):
 
 
 def save_research_failure(db, lead_id, error_message):
-    return update_lead(
-        db, lead_id,
-        {"status": "research failed", "research_error": error_message[:500]},
-        "record the failure",
-    )
+    """Record a failed research attempt.
+
+    If the company already had research (a refresh failed), its status and
+    earlier results are kept; only the error is noted.
+    """
+    lead = get_lead(db, lead_id)
+    changes = {"research_error": error_message[:500]}
+    if not lead.get("research"):
+        changes["status"] = "research failed"
+    return update_lead(db, lead_id, changes, "record the failure")
 
 
 def drafts_are_protected(lead):
@@ -194,6 +199,22 @@ def log_usage(db, kind, usage, lead_id=None):
         return True
     except Exception:
         return False
+
+
+class BudgetExceeded(Exception):
+    """Raised when AI spending has reached the budget."""
+
+
+def check_budget(db, budget_usd):
+    """Stop before an AI request if the estimated spend has reached the budget."""
+    if budget_usd is None:
+        return
+    spent = usage_totals(db)["estimated_cost_usd"]
+    if spent >= budget_usd:
+        raise BudgetExceeded(
+            f"AI spending has reached the ${budget_usd:.2f} budget (about ${spent:.2f} used). "
+            "Raise AI_BUDGET_USD in your secrets to continue."
+        )
 
 
 def usage_totals(db):

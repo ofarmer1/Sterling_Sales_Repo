@@ -14,7 +14,7 @@ import os
 import streamlit as st
 from supabase import create_client
 
-from ai_client import DEFAULT_MODEL, AIClient
+from ai_client import DEFAULT_BUDGET_USD, DEFAULT_MODEL, AIClient
 from find_view import find_tab
 from leads_view import leads_tab
 from settings_store import DEFAULT_SETTINGS, SettingsStoreError, current_settings
@@ -87,7 +87,11 @@ def get_ai():
     key = get_secret("OPENAI_API_KEY")
     if not key:
         return None
-    return AIClient(key, get_secret("OPENAI_MODEL") or DEFAULT_MODEL)
+    try:
+        budget = float(get_secret("AI_BUDGET_USD") or DEFAULT_BUDGET_USD)
+    except ValueError:
+        budget = DEFAULT_BUDGET_USD
+    return AIClient(key, get_secret("OPENAI_MODEL") or DEFAULT_MODEL, budget)
 
 
 def main():

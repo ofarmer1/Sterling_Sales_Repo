@@ -42,7 +42,7 @@ def build_prompt(settings, count, exclude_names):
         "Owner-led companies are best.",
     ]
     if settings["allow_non_tech"]:
-        lines.append("Mostly tech/software, but strong non-tech fits are fine (explain why).")
+        lines.append("Mostly the preferred industries, but strong fits outside them are fine (explain why).")
     if exclude_names:
         lines.append("Don't include these (already on the list): " + "; ".join(exclude_names))
     return "\n".join(lines)

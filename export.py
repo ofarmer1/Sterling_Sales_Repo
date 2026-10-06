@@ -45,7 +45,7 @@ def _value(research, name):
     fact = (research or {}).get(name) or {}
     if fact.get("status") in (None, "unknown") or fact.get("value") in (None, ""):
         return "unknown"
-    suffix = " (estimate)" if fact["status"] == "estimate" else ""
+    suffix = " (estimate)" if fact["status"] == "estimate" else " (cited)"
     return f"{fact['value']}{suffix}"
 
 

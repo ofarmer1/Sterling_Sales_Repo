@@ -7,6 +7,7 @@ import streamlit as st
 from batch import draft_one, research_one
 from drafting import LINKEDIN_LIMIT, draft_warnings
 from export import leads_to_csv
+from lead_filters import filter_leads
 from leads_store import (
     STATUSES,
     LeadsStoreError,
@@ -16,7 +17,7 @@ from leads_store import (
     set_status,
     usage_totals,
 )
-from qualification import DOES_NOT_MEET, MEETS
+from qualification import DOES_NOT_MEET, MEETS, NEEDS_REVIEW
 from research import FACT_FIELDS, RANGE_FIELDS
 
 AI_SETUP_MESSAGE = (
@@ -24,7 +25,11 @@ AI_SETUP_MESSAGE = (
     "(see the README), then restart the app."
 )
 
-STATUS_ICONS = {"verified": "✅ verified", "estimate": "🟡 estimate", "unknown": "⬜ unknown"}
+STATUS_ICONS = {"verified": "✅ cited", "estimate": "🟡 estimate", "unknown": "⬜ unknown"}
+SOURCE_NOTE = (
+    "“Cited” means the AI named a source and the web search really opened that page. "
+    "The app doesn't check that the page says it, so open the link before relying on it."
+)
 RESULT_ICONS = {"supported": "✅", "contradicted": "❌", "unknown": "❔"}
 
 
@@ -57,11 +62,18 @@ def leads_tab(db, ai, settings):
 
     st.caption(
         f"AI usage so far: {usage['requests']} requests, {usage['web_searches']} web searches, "
-        f"about ${usage['estimated_cost_usd']:.2f}. (Estimate only; check OpenAI's billing page.)"
+        f"about ${usage['estimated_cost_usd']:.2f}"
+        + (f" of the ${ai.budget_usd:.2f} budget" if ai is not None and getattr(ai, "budget_usd", None) else "")
+        + ". (Estimate only; check OpenAI's billing page.)"
     )
 
     if not leads:
         st.info("No companies yet. Add some in the Find leads tab.")
+        return
+
+    leads = filter_section(leads)
+    if not leads:
+        st.info("No companies match these filters.")
         return
 
     st.dataframe(
@@ -91,6 +103,46 @@ def leads_tab(db, ai, settings):
     lead_id = st.selectbox("Open a company", list(names), format_func=names.get)
     lead = next(item for item in leads if item["id"] == lead_id)
     show_lead(db, ai, settings, lead)
+
+
+def filter_section(all_leads):
+    """Show the filter controls and return the leads that match."""
+    with st.expander("Filter companies"):
+        search = st.text_input("Search company or owner name")
+        col1, col2 = st.columns(2)
+        results = col1.multiselect(
+            "Qualification", [MEETS, NEEDS_REVIEW, DOES_NOT_MEET, "Not checked"]
+        )
+        statuses = col2.multiselect("Review status", STATUSES)
+        industry = col1.text_input("Industry or product contains")
+        location = col2.text_input("City or state contains")
+        revenue_min = col1.number_input("Revenue at least ($M)", min_value=0.0, value=None, step=1.0)
+        revenue_max = col2.number_input("Revenue at most ($M)", min_value=0.0, value=None, step=1.0)
+        reps_min = col1.number_input("Salespeople at least", min_value=0, value=None, step=1)
+        reps_max = col2.number_input("Salespeople at most", min_value=0, value=None, step=1)
+        sources = st.multiselect("Found by", ["provided", "discovered"])
+        include_unknown = st.checkbox(
+            "Keep companies whose revenue or sales team is unknown", value=True
+        )
+
+    millions = lambda value: None if value is None else value * 1_000_000
+    leads = filter_leads(
+        all_leads,
+        search=search,
+        results=results,
+        statuses=statuses,
+        sources=sources,
+        industry=industry,
+        location=location,
+        revenue_min=millions(revenue_min),
+        revenue_max=millions(revenue_max),
+        reps_min=reps_min,
+        reps_max=reps_max,
+        include_unknown=include_unknown,
+    )
+    if len(leads) != len(all_leads):
+        st.caption(f"Showing {len(leads)} of {len(all_leads)} companies. The download includes only these.")
+    return leads
 
 
 def show_lead(db, ai, settings, lead):
@@ -181,6 +233,7 @@ def show_qualification(lead):
         hide_index=True,
         width="stretch",
     )
+    st.caption("“Supported” means backed by a cited source. " + SOURCE_NOTE)
 
 
 def show_research(research, seen_urls):
@@ -200,6 +253,7 @@ def show_research(research, seen_urls):
             }
         )
     with st.expander("All research facts", expanded=False):
+        st.caption(SOURCE_NOTE)
         st.dataframe(rows, hide_index=True, width="stretch")
 
     context = research.get("outreach_context") or []

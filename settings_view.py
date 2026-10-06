@@ -56,7 +56,7 @@ def settings_tab(db):
             ", ".join(current["preferred_industries"]),
         )
         allow_non_tech = st.checkbox(
-            "Also consider strong non-tech fits", current["allow_non_tech"]
+            "Also consider strong fits outside these industries", current["allow_non_tech"]
         )
 
         col1, col2 = st.columns(2)

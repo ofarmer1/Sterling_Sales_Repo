@@ -16,6 +16,8 @@ Overall result:
 Unknown never counts as a pass, and a known mismatch always shows.
 """
 
+import re
+
 MEETS = "Meets criteria"
 DOES_NOT_MEET = "Does not meet criteria"
 NEEDS_REVIEW = "Needs review"
@@ -95,39 +97,72 @@ def check_geography(research, settings):
     return _result(label, UNKNOWN, f"Possibly headquartered in {code} (not verified).", state)
 
 
-def check_industry(research, settings):
-    tech = _fact(research, "is_tech_company")
-    industry = _fact(research, "industry")
-    label = "Tech/software company" + (" (or strong non-tech fit)" if settings["allow_non_tech"] else "")
-    answer = (tech["value"] or "").strip().lower()
+# Words that mean "tech", so a "yes" tech answer counts for these preferences.
+TECH_WORDS = {"tech", "technology", "software", "saas", "it"}
 
-    if tech["status"] == "unknown" or answer not in ("yes", "no"):
-        return _result(label, UNKNOWN, "Not clear whether it's a tech company.")
-    if answer == "yes":
-        if tech["status"] == "verified":
-            return _result(label, SUPPORTED, f"Tech company ({industry['value'] or 'industry not stated'}).", tech)
-        return _result(label, UNKNOWN, "Looks like a tech company, but not verified.", tech)
-    # Not a tech company.
-    if not settings["allow_non_tech"]:
-        return _result(label, CONTRADICTED, f"Not a tech company ({industry['value'] or 'industry unknown'}).", tech)
-    fit = _fact(research, "non_tech_fit_reason")
-    if fit["status"] != "unknown" and fit["value"]:
-        return _result(label, UNKNOWN, f"Not tech, but possible strong fit: {fit['value']}. A person should decide.", fit)
-    return _result(label, UNKNOWN, f"Not a tech company ({industry['value'] or 'industry unknown'}), and no clear reason it's a strong fit.", tech)
+
+def matches_preferred_industry(research, preferred):
+    """Return (matched, facts_used) for the preferred industries in Settings."""
+    terms = [term.strip().lower() for term in preferred if term.strip()]
+    used = []
+    for name in ("industry", "what_they_sell"):
+        fact = _fact(research, name)
+        text = (fact["value"] or "").lower() if fact["status"] != "unknown" else ""
+        if text and any(re.search(rf"\b{re.escape(term)}\b", text) for term in terms):
+            used.append(fact)
+    tech = _fact(research, "is_tech_company")
+    if (tech["value"] or "").strip().lower() == "yes" and tech["status"] != "unknown":
+        if any(term in TECH_WORDS for term in terms):
+            used.append(tech)
+    return bool(used), used
+
+
+def check_industry(research, settings):
+    preferred = [p for p in settings["preferred_industries"] if p.strip()]
+    industry = _fact(research, "industry")
+    shown_industry = industry["value"] or "industry unknown"
+    if not preferred:
+        return _result("Industry", UNKNOWN, "No preferred industries are set in Settings.")
+    label = f"Preferred industry ({', '.join(preferred)})"
+    if settings["allow_non_tech"]:
+        label += " or strong fit outside it"
+
+    matched, used = matches_preferred_industry(research, preferred)
+    if matched:
+        verified = [fact for fact in used if fact["status"] == "verified"]
+        if verified:
+            return _result(label, SUPPORTED, f"Matches a preferred industry ({shown_industry}).", verified[0])
+        return _result(label, UNKNOWN, f"Probably a preferred industry ({shown_industry}), but not verified.", used[0])
+
+    if industry["status"] == "unknown" and _fact(research, "what_they_sell")["status"] == "unknown":
+        return _result(label, UNKNOWN, "Industry not found.")
+
+    # Outside the preferred industries.
+    if settings["allow_non_tech"]:
+        fit = _fact(research, "non_tech_fit_reason")
+        if fit["status"] != "unknown" and fit["value"]:
+            return _result(label, UNKNOWN, f"Outside the preferred industries ({shown_industry}), but possible strong fit: {fit['value']}. A person should decide.", fit)
+        return _result(label, UNKNOWN, f"Outside the preferred industries ({shown_industry}), and no clear reason it's a strong fit.", industry)
+    if industry["status"] == "verified":
+        return _result(label, CONTRADICTED, f"Not a preferred industry ({shown_industry}).", industry)
+    # Only an estimate: never a firm rejection.
+    return _result(label, UNKNOWN, f"Probably not a preferred industry ({shown_industry}), but only an estimate.", industry)
 
 
 def check_range(research, field_name, low_limit, high_limit, label, unit):
-    """Compare a researched low/high range with the allowed min/max."""
+    """Compare a researched low/high range with the allowed min/max.
+
+    If only one end is known (e.g. "over $10M"), the other end is open, so the
+    figure is never treated as an exact amount.
+    """
     fact = _fact(research, field_name)
     low, high = fact.get("low"), fact.get("high")
     if fact["status"] == "unknown" or (low is None and high is None):
         return _result(label, UNKNOWN, f"{unit} not publicly available.")
-    low = high if low is None else low
-    high = low if high is None else high
     shown = _describe(low, high, unit)
 
-    completely_inside = low >= low_limit and high <= high_limit
-    completely_outside = high < low_limit or low > high_limit
+    completely_inside = low is not None and high is not None and low >= low_limit and high <= high_limit
+    completely_outside = (high is not None and high < low_limit) or (low is not None and low > high_limit)
 
     if completely_outside and fact["status"] == "verified":
         return _result(label, CONTRADICTED, f"{shown} is outside the target range.", fact)
@@ -137,16 +172,25 @@ def check_range(research, field_name, low_limit, high_limit, label, unit):
         return _result(label, SUPPORTED, f"{shown} is within the target range.", fact)
     if completely_inside:
         return _result(label, UNKNOWN, f"Estimated {shown}: inside the range, but only an estimate.", fact)
+    if low is None or high is None:
+        return _result(label, UNKNOWN, f"Only partly known ({shown}), so it may or may not be in range.", fact)
     return _result(label, UNKNOWN, f"{shown} overlaps the edge of the target range.", fact)
 
 
 def _describe(low, high, unit):
-    """E.g. 'Revenue $2.0M to $5.0M' or '4 to 8 salespeople'."""
+    """E.g. 'Revenue $2.0M to $5.0M', '4 to 8 salespeople', 'Revenue over $10.0M'."""
     if unit == "Revenue":
         fmt = lambda n: f"${n / 1_000_000:,.1f}M"
     else:
         fmt = lambda n: f"{n:,.0f}"
-    amount = fmt(low) if low == high else f"{fmt(low)} to {fmt(high)}"
+    if low is None:
+        amount = f"up to {fmt(high)}"
+    elif high is None:
+        amount = f"at least {fmt(low)}"
+    elif low == high:
+        amount = fmt(low)
+    else:
+        amount = f"{fmt(low)} to {fmt(high)}"
     return f"Revenue {amount}" if unit == "Revenue" else f"{amount} salespeople"
 
 

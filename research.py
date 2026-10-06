@@ -4,6 +4,10 @@ Every fact comes back as:
     {"value": ..., "status": "verified" | "estimate" | "unknown",
      "sources": [urls], "note": "..."}
 
+"verified" means the AI says a source states it AND the web search really
+opened that source. The app does NOT read the page to prove it says so, so
+the screen calls these "cited" and asks a person to check the link.
+
 After the AI answers, `check_research` cleans it up so we never show more
 certainty than we have:
 - a source the web search never actually looked at is removed;
@@ -29,7 +33,7 @@ FACT_FIELDS = {
     "who_they_serve": "Who their customers are.",
     "industry": "Their industry in a few words.",
     "is_tech_company": "'yes' if they mainly sell technology or software, otherwise 'no'.",
-    "non_tech_fit_reason": "If not a tech company, why they might still be a strong fit for sales training (e.g. a sizeable B2B sales team). Otherwise unknown.",
+    "non_tech_fit_reason": "If the company is outside the preferred industries, why it might still be a strong fit for sales training (e.g. a sizeable B2B sales team). Otherwise unknown.",
     "owner_name": "The full name of the company's owner (founder/owner/majority owner). A CEO or sales leader is NOT automatically the owner.",
     "owner_title": "The owner's title.",
     "ownership_evidence": "The evidence that this person owns the company (e.g. 'founder and owner' on the About page).",
@@ -101,6 +105,8 @@ def build_prompt(name, website, settings):
     if website:
         lines.append(f"Website: {website}")
     lines.append(f"Target region: {settings['geography']}")
+    industries = ", ".join(settings["preferred_industries"]) or "any"
+    lines.append(f"Preferred industries: {industries}")
     lines.append("Research this company and fill in every field.")
     return "\n".join(lines)
 
