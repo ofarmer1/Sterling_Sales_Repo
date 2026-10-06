@@ -1,37 +1,67 @@
 # Sterling Sales lead finder
 
 A Streamlit app that helps John at Sterling Sales Training & Consulting find,
-research, and qualify leads, and drafts outreach for him to send by hand.
+research, and qualify leads, and drafts outreach for a person to send by hand.
+Nothing is ever sent automatically.
 
-Right now (step 1) it's a password-protected skeleton with three empty tabs.
+Current state (step 2): password sign-in, and a Settings screen that saves
+John's targeting and messaging settings to Supabase.
 
-## Run it locally
+## 1. Install (once)
 
-You need Python 3.12.
+You need Python 3.12 (`brew install python@3.12`).
 
 ```bash
-# 1. Create and turn on a virtual environment
 python3.12 -m venv .venv
 source .venv/bin/activate
+pip install -r requirements-dev.txt
+```
 
-# 2. Install the packages
-pip install -r requirements.txt
+## 2. Set up Supabase (once)
 
-# 3. (Optional) set a password
+1. Create a project at https://supabase.com.
+2. In the dashboard, open **SQL Editor**, paste all of `supabase/schema.sql`,
+   and click **Run**.
+3. Find your keys:
+   - **Project URL**: the **Connect** button at the top, or Project Settings > Data API (looks like
+     `https://abcd1234.supabase.co`).
+   - **Secret key**: Project Settings > API Keys, the one starting with
+     `sb_secret_`. Not the publishable key.
+
+## 3. Add your secrets (once)
+
+```bash
 cp .streamlit/secrets.toml.example .streamlit/secrets.toml
-# then edit .streamlit/secrets.toml and change the password
+open -e .streamlit/secrets.toml
+```
 
-# 4. Start the app
+Fill in `APP_PASSWORD`, `SUPABASE_URL` and `SUPABASE_SECRET_KEY`, then save.
+This file is ignored by git, so it never gets committed. Don't paste these
+values into chat, screenshots or code.
+
+Without `APP_PASSWORD` the app stays locked. Without the Supabase values the
+app still opens, but the Settings screen says it isn't connected and the Save
+button is turned off.
+
+## 4. Run it
+
+```bash
+source .venv/bin/activate
 streamlit run app.py
 ```
 
-The app opens at http://localhost:8501.
+It opens at http://localhost:8501. Stop it with Ctrl-C.
 
-If you skip step 3, there's no password and the app lets you straight in.
-You can also set the password with an environment variable instead:
-`APP_PASSWORD=secret streamlit run app.py`.
+## Tests
+
+```bash
+source .venv/bin/activate
+python -m pytest
+```
+
+These use a fake in-memory database, not Supabase.
 
 ## Deploying
 
-On Streamlit Community Cloud, point the app at `app.py` in this repo and add
-`APP_PASSWORD = "..."` in the app's Secrets settings.
+On Streamlit Community Cloud, point the app at `app.py` in this repo and paste
+the same three lines from your `secrets.toml` into the app's Secrets settings.
