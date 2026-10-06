@@ -11,3 +11,6 @@ venv/
 
 # Mac
 .DS_Store
+
+# Supabase command-line tool cache
+supabase/.temp/
