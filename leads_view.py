@@ -272,9 +272,23 @@ def show_research(research, seen_urls):
             st.write(url)
 
 
+def recipient_note(research):
+    """Say plainly who the email could go to. The app never picks a recipient."""
+    email = research.get("public_email") or {}
+    owner = (research.get("owner_name") or {}).get("value")
+    if email.get("unsuitable_reason"):
+        st.warning(email["unsuitable_reason"] + " No recipient has been chosen.")
+    elif email.get("value"):
+        st.info(f"Public email found: {email['value']}. It may not reach the owner; check before using it. No recipient has been chosen.")
+    else:
+        who = f" for {owner}" if owner else ""
+        st.info(f"No email address found{who}. No recipient has been chosen; find the right address yourself.")
+
+
 def drafts_section(db, ai, settings, lead):
     st.markdown("### Drafts")
     st.caption("Drafts are for you to review, copy and send yourself. Nothing is sent from here.")
+    recipient_note(lead.get("research") or {})
 
     has_drafts = bool(lead.get("email_body"))
     if has_drafts:

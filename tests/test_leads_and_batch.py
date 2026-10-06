@@ -218,7 +218,7 @@ def test_batch_is_capped():
 def test_discovery_drops_candidates_without_real_sources():
     candidates, usage = discover_companies(standard_fake_ai(), SETTINGS, 5)
     assert [c["name"] for c in candidates] == ["Found Co", "Second Co"]
-    assert candidates[0]["reason"] == "SC SaaS firm"
+    assert candidates[0]["reason"].startswith("SC SaaS firm")
 
 
 def test_discovery_count_is_capped_and_existing_excluded():

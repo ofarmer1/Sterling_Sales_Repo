@@ -17,6 +17,7 @@ certainty than we have:
   because guessed contact details are worse than none.
 """
 
+import re
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 
@@ -49,6 +50,25 @@ RANGE_FIELDS = {
 }
 
 STATUSES = ["verified", "estimate", "unknown"]
+
+# Shared inboxes that won't reach the owner (jobs@, support@...).
+ROLE_EMAIL_PREFIXES = {
+    "jobs", "job", "careers", "career", "hr", "recruiting", "recruitment", "hiring",
+    "support", "help", "helpdesk", "service", "customerservice", "noreply", "no-reply",
+    "donotreply", "billing", "accounts", "accounting", "invoices", "admin", "webmaster",
+    "privacy", "legal", "press", "media", "marketing", "info", "hello", "contact",
+    "office", "team", "sales",
+}
+
+
+def email_warning(email):
+    """Explain why an email isn't suitable for owner outreach, or '' if it might be."""
+    if not email or "@" not in email:
+        return ""
+    prefix = email.split("@", 1)[0].lower()
+    if prefix in ROLE_EMAIL_PREFIXES:
+        return f"{email} is a shared {prefix}@ inbox, not the owner. Not suitable for owner outreach."
+    return ""
 
 # Contact details we only keep when verified with a source.
 STRICT_FIELDS = {"owner_linkedin_url", "company_linkedin_url", "public_email"}
@@ -94,7 +114,9 @@ Rules:
 - The owner is the person who owns the company. Don't call a CEO, president or
   sales leader the owner unless a source says they own or founded it and still own it.
 - Revenue and sales-team size are often private. Leave them unknown rather than guess.
-  Never convert total employees into a number of salespeople.
+  Never convert total employees into a number of salespeople. The number of
+  products a company sells is not evidence of revenue.
+- For the owner, the source must support that they hold the role today.
 - outreach_context: 2 to 5 specific, recent, public facts useful for a personal
   sales email (new product, expansion, hiring salespeople, awards...), each with sources.
 - Never invent sources, emails, names or numbers."""
@@ -182,6 +204,15 @@ def check_research(data, seen_urls):
                 fact["low"] = fact["high"] = None
 
         cleaned[name] = fact
+
+    email = cleaned["public_email"]
+    # Some sites hide addresses ("[email protected]"); that's not a real address.
+    if email["value"] and not re.fullmatch(r"[^@\s\[\]]+@[^@\s\[\]]+\.[a-zA-Z]{2,}", email["value"].strip()):
+        email.update(value=None, status="unknown", sources=[])
+        email["note"] = _add_note(email["note"], "The address was hidden or not a real email address.")
+    email["unsuitable_reason"] = email_warning(email["value"])
+    if email["unsuitable_reason"]:
+        email["note"] = _add_note(email["note"], email["unsuitable_reason"])
 
     cleaned["outreach_context"] = []
     for item in data.get("outreach_context") or []:

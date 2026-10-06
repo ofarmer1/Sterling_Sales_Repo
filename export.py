@@ -27,6 +27,7 @@ COLUMNS = [
     ("Owner LinkedIn", lambda lead, r: _value(r, "owner_linkedin_url")),
     ("Company LinkedIn", lambda lead, r: _value(r, "company_linkedin_url")),
     ("Public email", lambda lead, r: _value(r, "public_email")),
+    ("Email warning", lambda lead, r: ((r or {}).get("public_email") or {}).get("unsuitable_reason", "")),
     ("Public phone", lambda lead, r: _value(r, "public_phone")),
     ("Email subject", lambda lead, r: lead["email_subject"]),
     ("Email body", lambda lead, r: lead["email_body"]),
