@@ -151,3 +151,17 @@ def test_filter_narrows_table_and_download(world):
     assert any("Showing 1 of 2" in c.value for c in app.caption)
     opener = next(s for s in app.selectbox if s.label == "Open a company")
     assert len(opener.options) == 1
+
+
+def test_discovery_runs_end_to_end_with_no_companies_given(world):
+    db, ai = world
+    app = sign_in(make_ai_app())
+    button(app, "Search for companies").click()
+    app.run()
+    leads = list_leads(db)
+    assert [lead["name"] for lead in leads] == ["Found Co"]
+    lead = leads[0]
+    assert lead["research"] and lead["qualification_result"]
+    assert lead["email_body"] and lead["linkedin_note"]
+    assert lead["status"] == "draft ready"  # ready for a person to review; nothing sent
+    assert any("Open the Leads tab" in s.value for s in app.success)

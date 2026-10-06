@@ -227,3 +227,14 @@ def test_discovery_count_is_capped_and_existing_excluded():
     prompt = ai.calls[-1][1]
     assert "Find 20 companies" in prompt
     assert "Already Here" in prompt
+
+
+def test_booking_link_is_always_in_the_email_when_set():
+    with_link = {**SETTINGS, "booking_url": "https://cal.example/john"}
+    body = add_signature("Hi Pat, worth a chat?", with_link)
+    assert "https://cal.example/john" in body
+    # Not added twice if the AI already included it.
+    once = add_signature("Book here: https://cal.example/john", with_link)
+    assert once.count("https://cal.example/john") == 1
+    # No link set: none invented.
+    assert "http" not in add_signature("Hi", SETTINGS)

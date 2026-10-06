@@ -74,9 +74,13 @@ def build_prompt(company_name, research, settings):
 
 
 def add_signature(body, settings):
-    """Put the saved signature (or a clear placeholder) under the email."""
+    """Put the booking link (if set and missing) and the signature under the email."""
+    body = body.rstrip()
+    booking_url = settings["booking_url"].strip()
+    if booking_url and booking_url not in body:
+        body += f"\n\nIf it's easier, grab a time here: {booking_url}"
     signature = settings["signature"].strip()
-    return f"{body.rstrip()}\n\n{signature or SIGNATURE_MISSING}"
+    return f"{body}\n\n{signature or SIGNATURE_MISSING}"
 
 
 def generate_drafts(ai, company_name, research, settings):

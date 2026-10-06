@@ -73,6 +73,10 @@ def discover_section(db, ai, settings):
         st.info(AI_SETUP_MESSAGE)
         return
     count = st.number_input("How many to look for", 1, MAX_DISCOVERY, 5)
+    run_all = st.checkbox(
+        "Then research them and write drafts right away (one click, start to finish)",
+        value=True,
+    )
     if not st.button("Search for companies"):
         return
     try:
@@ -91,6 +95,30 @@ def discover_section(db, ai, settings):
         st.markdown(f"**{company['name']}** {company['website']}  \n{company['reason']}")
         for url in company["sources"]:
             st.caption(f"- {url}")
+
+    if run_all and added:
+        run_batch(db, ai, settings, [row["id"] for row in added], write_drafts=True, redo=False)
+
+
+def run_batch(db, ai, settings, lead_ids, write_drafts, redo):
+    """Process leads with a progress bar and show the outcome."""
+    progress = st.progress(0.0, text="Starting...")
+
+    def on_progress(done, total, message):
+        progress.progress(done / total, text=f"{done} of {total}: {message}")
+
+    summary = process_batch(
+        db, ai, settings, lead_ids,
+        write_drafts=write_drafts, redo=redo, on_progress=on_progress,
+    )
+    text = f"Done: {len(summary['done'])} finished, {len(summary['skipped'])} skipped, {len(summary['failed'])} failed."
+    if summary["failed"]:
+        st.warning(text)
+        for name, error in summary["failed"]:
+            st.error(f"{name}: {error}")
+        st.caption("Finished companies are saved. Use 'Retry failed or missing drafts' to try the others again.")
+    else:
+        st.success(text + " Open the Leads tab to review the drafts.")
 
 
 def batch_section(db, ai, settings):
@@ -135,21 +163,4 @@ def batch_section(db, ai, settings):
         return
 
     lead_ids = failed if retry else chosen
-    progress = st.progress(0.0, text="Starting...")
-
-    def on_progress(done, total, message):
-        progress.progress(done / total, text=f"{done} of {total}: {message}")
-
-    summary = process_batch(
-        db, ai, settings, lead_ids,
-        write_drafts=write_drafts or retry, redo=redo and not retry, on_progress=on_progress,
-    )
-    text = f"Done: {len(summary['done'])} finished, {len(summary['skipped'])} skipped, {len(summary['failed'])} failed."
-    if summary["failed"]:
-        st.warning(text)
-        for name, error in summary["failed"]:
-            st.error(f"{name}: {error}")
-        st.caption("Finished companies are saved. Use 'Retry failed or missing drafts' to try the others again.")
-    else:
-        flash(text)
-        st.rerun()
+    run_batch(db, ai, settings, lead_ids, write_drafts=write_drafts or retry, redo=redo and not retry)
