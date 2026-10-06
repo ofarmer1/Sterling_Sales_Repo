@@ -5,7 +5,7 @@ import streamlit as st
 from batch import MAX_BATCH, needs_drafts, needs_research, needs_retry, process_batch
 from discovery import MAX_DISCOVERY, discover_companies
 from leads_store import LeadsStoreError, add_companies, check_budget, list_leads, log_usage
-from leads_view import AI_SETUP_MESSAGE, flash
+from leads_view import AI_SETUP_MESSAGE, flash, no_math
 
 # Rough cost per company, used only for the estimate shown before a batch.
 ESTIMATED_COST_PER_COMPANY = 0.15
@@ -87,12 +87,12 @@ def discover_section(db, ai, settings):
         log_usage(db, "discovery", usage)
         added, skipped = add_companies(db, candidates, source="discovered")
     except Exception as error:
-        st.error(f"Search failed: {error}")
+        st.error(no_math(f"Search failed: {error}"))
         return
 
     st.success(f"Found {len(candidates)} candidates. Added {len(added)} new; {len(skipped)} were already on the list.")
     for company in candidates:
-        st.markdown(f"**{company['name']}** {company['website']}  \n{company['reason']}")
+        st.markdown(no_math(f"**{company['name']}** {company['website']}  \n{company['reason']}"))
         for url in company["sources"]:
             st.caption(f"- {url}")
 
@@ -115,7 +115,7 @@ def run_batch(db, ai, settings, lead_ids, write_drafts, redo):
     if summary["failed"]:
         st.warning(text)
         for name, error in summary["failed"]:
-            st.error(f"{name}: {error}")
+            st.error(no_math(f"{name}: {error}"))
         st.caption("Finished companies are saved. Use 'Retry failed or missing drafts' to try the others again.")
     else:
         st.success(text + " Open the Leads tab to review the drafts.")
@@ -147,10 +147,10 @@ def batch_section(db, ai, settings):
     redo = st.checkbox("Redo companies that are already researched (costs more)")
     by_id = {lead["id"]: lead for lead in leads}
     to_run = [i for i in chosen if redo or needs_research(by_id[i])]
-    st.caption(
+    st.caption(no_math(
         f"{len(to_run)} will be researched (others only get missing drafts). Rough cost: about "
         f"${len(to_run) * ESTIMATED_COST_PER_COMPANY:.2f}."
-    )
+    ))
 
     if ai is None:
         st.info(AI_SETUP_MESSAGE)

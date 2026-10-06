@@ -33,6 +33,11 @@ SOURCE_NOTE = (
 RESULT_ICONS = {"supported": "✅", "contradicted": "❌", "unknown": "❔"}
 
 
+def no_math(text):
+    """Escape $ signs: Streamlit treats text between two $ signs as a math formula."""
+    return str(text).replace("$", "\\$")
+
+
 def friendly_time(value):
     try:
         return datetime.fromisoformat(value).strftime("%b %d, %Y %H:%M UTC")
@@ -60,12 +65,12 @@ def leads_tab(db, ai, settings):
         st.error(f"{error}\n\nIf this is new, run supabase/schema.sql again in Supabase.")
         return
 
-    st.caption(
+    st.caption(no_math(
         f"AI usage so far: {usage['requests']} requests, {usage['web_searches']} web searches, "
         f"about ${usage['estimated_cost_usd']:.2f}"
         + (f" of the ${ai.budget_usd:.2f} budget" if ai is not None and getattr(ai, "budget_usd", None) else "")
         + ". (Estimate only; check OpenAI's billing page.)"
-    )
+    ))
 
     if not leads:
         st.info("No companies yet. Add some in the Find leads tab.")
@@ -150,7 +155,7 @@ def show_lead(db, ai, settings, lead):
     if lead["website"]:
         st.write(lead["website"])
     if lead["source"] == "discovered":
-        st.caption(f"Found by search: {lead['discovery_reason']}")
+        st.caption(no_math(f"Found by search: {lead['discovery_reason']}"))
         for url in lead.get("discovery_sources") or []:
             st.caption(f"- {url}")
 
@@ -183,7 +188,7 @@ def status_section(db, lead):
 def research_section(db, ai, settings, lead):
     st.markdown("### Research")
     if lead.get("research_error"):
-        st.error(f"Last research attempt failed: {lead['research_error']}")
+        st.error(no_math(f"Last research attempt failed: {lead['research_error']}"))
 
     research = lead.get("research")
     if research:
@@ -204,7 +209,7 @@ def research_section(db, ai, settings, lead):
             try:
                 research_one(db, ai, settings, lead["id"])
             except Exception as error:
-                st.error(f"Research failed: {error}")
+                st.error(no_math(f"Research failed: {error}"))
                 return
         flash(f"Research saved for {lead['name']}.")
         st.rerun()
@@ -213,7 +218,7 @@ def research_section(db, ai, settings, lead):
 def show_qualification(lead):
     qualification = lead.get("qualification") or {}
     result = lead["qualification_result"]
-    message = f"**{result}**: {qualification.get('summary', '')}"
+    message = no_math(f"**{result}**: {qualification.get('summary', '')}")
     if result == MEETS:
         st.success(message)
     elif result == DOES_NOT_MEET:
@@ -260,7 +265,7 @@ def show_research(research, seen_urls):
     if context:
         st.markdown("**Useful context for outreach**")
         for item in context:
-            st.markdown(f"- {item['fact']} ({', '.join(item['sources'])})")
+            st.markdown(no_math(f"- {item['fact']} ({', '.join(item['sources'])})"))
 
     with st.expander(f"Every page the search looked at ({len(seen_urls)})"):
         for url in seen_urls:
@@ -324,7 +329,7 @@ def drafts_section(db, ai, settings, lead):
             try:
                 draft_one(db, ai, settings, lead["id"], replace_protected=replace)
             except Exception as error:
-                st.error(f"Couldn't write drafts: {error}")
+                st.error(no_math(f"Couldn't write drafts: {error}"))
                 return
         flash("New drafts saved.")
         st.rerun()
