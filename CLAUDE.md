@@ -79,8 +79,8 @@ aren't available, record that limitation.
 - Use examples from John or Jessika for style when we get them (none yet).
 
 ## Step plan
-1. Skeleton and deploy. (done)
-2. Settings screen saved to Supabase. (built on branch step-2-settings)
+1. Skeleton and deploy. (done; not deployed yet)
+2. Settings screen saved to Supabase. (done, tested against real Supabase)
 3. Research one company: identity, website, SC evidence, what they sell,
    industry, revenue/sales team if public, owner and ownership evidence,
    outreach context, public contact and LinkedIn links. Save findings and
@@ -99,6 +99,26 @@ aren't available, record that limitation.
    finished results if one fails, retry failures without redoing successes.
 7. Export (CSV/XLSX safe for quotes, multiline text, and formula injection),
    error handling, polish.
+
+Steps 3 to 7 were built on Oct 6, 2026. Everything is tested with a fake AI
+and fake database, and the storage was smoke-tested on real Supabase. Live
+OpenAI research has NOT been run yet (no API key). See docs/steps-3-7-review.md.
+
+## Code map
+- `app.py`: sign-in, connections (Supabase, OpenAI), tabs.
+- `settings_view.py`, `leads_view.py`, `find_view.py`: one file per tab.
+- `settings_store.py`, `leads_store.py`: all database reads/writes.
+- `ai_client.py`: the only place that calls OpenAI (Responses API, web_search
+  tool, strict JSON schema output, cost estimate). Default model gpt-5.4-mini.
+- `research.py`: research prompt + `check_research`, which removes sources the
+  search never saw and downgrades unsupported claims.
+- `qualification.py`: plain-Python rules, no AI.
+- `drafting.py`: email + LinkedIn drafts; signature added from Settings.
+- `discovery.py`: finds candidate companies (sourced only).
+- `batch.py`: research/draft one lead or a batch (max 15), saves each as it goes.
+- `export.py`: CSV export, quoted and formula-safe.
+- `tests/`: pytest; `fake_database.py` and `fake_ai.py` stand in for real services.
+  Tests run from a temp folder so they never read the real secrets file.
 
 Out of scope for the first test: auto sending, AI phone calls, a CRM
 replacement, multichannel campaigns, complex agent setups, personalized decks

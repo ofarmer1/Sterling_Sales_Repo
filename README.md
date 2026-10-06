@@ -4,8 +4,15 @@ A Streamlit app that helps John at Sterling Sales Training & Consulting find,
 research, and qualify leads, and drafts outreach for a person to send by hand.
 Nothing is ever sent automatically.
 
-Current state (step 2): password sign-in, and a Settings screen that saves
-John's targeting and messaging settings to Supabase.
+What it does:
+- **Find leads**: add companies you know, search the web for new ones, and
+  research a batch (up to 15 at a time) with a progress bar.
+- **Leads**: see each company's research with sources, whether it meets
+  John's criteria (and why), and edit/copy the email and LinkedIn drafts.
+  Set a review status. Download everything as a spreadsheet (CSV).
+- **Settings**: John's targeting and messaging preferences.
+
+Nothing is ever sent. You copy the drafts and send them yourself.
 
 ## 1. Install (once)
 
@@ -35,11 +42,14 @@ cp .streamlit/secrets.toml.example .streamlit/secrets.toml
 open -e .streamlit/secrets.toml
 ```
 
-Fill in `APP_PASSWORD`, `SUPABASE_URL` and `SUPABASE_SECRET_KEY`, then save.
+Fill in `APP_PASSWORD`, `SUPABASE_URL`, `SUPABASE_SECRET_KEY` and
+`OPENAI_API_KEY`, then save. The OpenAI key needs API credits from
+platform.openai.com (a ChatGPT subscription doesn't include them).
 This file is ignored by git, so it never gets committed. Don't paste these
 values into chat, screenshots or code.
 
-Without `APP_PASSWORD` the app stays locked. Without the Supabase values the
+Without `APP_PASSWORD` the app stays locked. Without `OPENAI_API_KEY` you can
+still add companies and edit things, but research and drafts are switched off. Without the Supabase values the
 app still opens, but the Settings screen says it isn't connected and the Save
 button is turned off.
 
@@ -61,7 +71,13 @@ python -m pytest
 
 These use a fake in-memory database, not Supabase.
 
+## Costs
+
+Research uses OpenAI's web search. The app shows a running estimate on the
+Leads tab and caps batches at 15 companies and searches at 8 per company.
+The estimate is a guide; OpenAI's billing page has the real numbers.
+
 ## Deploying
 
 On Streamlit Community Cloud, point the app at `app.py` in this repo and paste
-the same three lines from your `secrets.toml` into the app's Secrets settings.
+the same lines from your `secrets.toml` into the app's Secrets settings.

@@ -40,3 +40,68 @@ create table if not exists public.app_settings (
 -- secret key, which is allowed through.
 alter table public.app_settings enable row level security;
 revoke all on public.app_settings from anon, authenticated;
+
+-- ---------------------------------------------------------------------------
+-- leads: one row per company we're looking at.
+-- ---------------------------------------------------------------------------
+create table if not exists public.leads (
+    id bigint generated always as identity primary key,
+
+    -- Used to spot duplicates: the website's domain, or a tidied company name.
+    company_key text not null unique,
+    name text not null,
+    website text not null default '',
+
+    -- Where the company came from: 'provided' (typed in) or 'discovered'.
+    source text not null default 'provided'
+        check (source in ('provided', 'discovered')),
+    discovery_reason text not null default '',
+    discovery_sources jsonb not null default '[]',
+
+    -- Where it is in the process. Never 'sent': the app doesn't send anything.
+    status text not null default 'new'
+        check (status in ('new', 'research failed', 'researched', 'needs review',
+                          'draft ready', 'approved', 'manually contacted')),
+
+    -- Research results (facts, each marked verified / estimate / unknown).
+    research jsonb,
+    research_sources jsonb not null default '[]',
+    researched_at timestamptz,
+    research_error text not null default '',
+
+    -- Qualification result and the reasons behind it.
+    qualification jsonb,
+    qualification_result text not null default '',
+
+    -- Outreach drafts, for a person to review and send by hand.
+    email_subject text not null default '',
+    email_body text not null default '',
+    linkedin_note text not null default '',
+    drafts_generated_at timestamptz,
+    drafts_edited_at timestamptz,
+
+    notes text not null default '',
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now()
+);
+
+alter table public.leads enable row level security;
+revoke all on public.leads from anon, authenticated;
+
+-- ---------------------------------------------------------------------------
+-- usage_log: one row per AI request, so we can see what research costs.
+-- ---------------------------------------------------------------------------
+create table if not exists public.usage_log (
+    id bigint generated always as identity primary key,
+    created_at timestamptz not null default now(),
+    lead_id bigint references public.leads (id) on delete set null,
+    kind text not null,  -- 'research', 'discovery' or 'drafts'
+    model text not null default '',
+    input_tokens integer not null default 0,
+    output_tokens integer not null default 0,
+    web_searches integer not null default 0,
+    estimated_cost_usd numeric(10, 4)
+);
+
+alter table public.usage_log enable row level security;
+revoke all on public.usage_log from anon, authenticated;

@@ -134,3 +134,9 @@ def save_settings(client, settings):
     if not response.data:
         raise SettingsStoreError("The database didn't confirm the save.")
     return response.data[0]
+
+
+def current_settings(client):
+    """The saved settings, or John's defaults if nothing is saved yet."""
+    saved, _ = load_settings(client)
+    return saved or dict(DEFAULT_SETTINGS)

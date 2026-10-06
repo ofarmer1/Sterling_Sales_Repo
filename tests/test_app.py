@@ -22,7 +22,7 @@ def clean_environment(monkeypatch, tmp_path):
     # Run from an empty folder so the real .streamlit/secrets.toml (your
     # actual password and database keys) is never used by the tests.
     monkeypatch.chdir(tmp_path)
-    for name in ["APP_PASSWORD", "SUPABASE_URL", "SUPABASE_SECRET_KEY"]:
+    for name in ["APP_PASSWORD", "SUPABASE_URL", "SUPABASE_SECRET_KEY", "OPENAI_API_KEY"]:
         monkeypatch.delenv(name, raising=False)
     st.cache_resource.clear()  # forget the database connection between tests
     yield
@@ -144,8 +144,8 @@ def test_database_failure_shows_error_not_success():
     assert not app.success
 
 
-def test_other_tabs_still_show():
+def test_empty_leads_and_find_tabs():
     with patch("supabase.create_client", return_value=FakeDatabase()):
         app = sign_in(make_app())
-    assert "draft emails will show up here" in app.tabs[0].markdown[0].value
-    assert "Search for new companies" in app.tabs[1].markdown[0].value
+    assert any("No companies yet" in i.value for i in app.tabs[0].info)
+    assert any("Add companies you already know" in m.value for m in app.tabs[1].markdown)
