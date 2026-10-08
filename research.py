@@ -40,8 +40,13 @@ FACT_FIELDS = {
     "ownership_evidence": "The evidence that this person owns the company (e.g. 'founder and owner' on the About page).",
     "owner_linkedin_url": "The owner's public LinkedIn profile URL, only if you saw it.",
     "company_linkedin_url": "The company's public LinkedIn page URL, only if you saw it.",
-    "public_email": "A general business email published by the company, only if you saw it. Never guess.",
+    "owner_email": "The owner's own business email address, only if it is published on a page you saw. Never guess or build one from a name pattern.",
+    "public_email": "A general business email published by the company (e.g. info@, contact@), only if you saw it. Never guess.",
     "public_phone": "The company's published business phone number.",
+    "founded_year": "The year the company was founded.",
+    "total_employees": "Total number of employees in all roles (e.g. from LinkedIn). This is NOT the sales team size.",
+    "hiring_salespeople": "Evidence the company is hiring salespeople or business developers now (e.g. a current job post).",
+    "sales_leader": "Name and title of the person who leads sales, if public (not automatically the owner).",
 }
 
 RANGE_FIELDS = {
@@ -71,7 +76,8 @@ def email_warning(email):
     return ""
 
 # Contact details we only keep when verified with a source.
-STRICT_FIELDS = {"owner_linkedin_url", "company_linkedin_url", "public_email"}
+STRICT_FIELDS = {"owner_linkedin_url", "company_linkedin_url", "public_email", "owner_email"}
+EMAIL_FIELDS = ("public_email", "owner_email")
 
 _fact = {
     "value": {"type": ["string", "null"]},
@@ -98,6 +104,17 @@ RESEARCH_SCHEMA = object_schema(
                 }
             ),
         },
+        "recent_news": {
+            "type": "array",
+            "items": object_schema(
+                {
+                    "headline": {"type": "string"},
+                    "date": {"type": ["string", "null"]},
+                    "summary": {"type": "string"},
+                    "sources": {"type": "array", "items": {"type": "string"}},
+                }
+            ),
+        },
     }
 )
 
@@ -117,8 +134,15 @@ Rules:
   Never convert total employees into a number of salespeople. The number of
   products a company sells is not evidence of revenue.
 - For the owner, the source must support that they hold the role today.
+- Search widely: the company website (About, Team, Contact, News, Careers pages),
+  the company's LinkedIn page, the owner's public LinkedIn profile, local
+  business news (e.g. SC business journals), press releases, awards and job posts.
+- recent_news: up to 5 news items or announcements from the last 2 years, with
+  date if known, a one-line summary, and sources.
 - outreach_context: 2 to 5 specific, recent, public facts useful for a personal
   sales email (new product, expansion, hiring salespeople, awards...), each with sources.
+- Emails: only addresses printed on a page you saw. Never build one from a
+  name pattern (like first@company.com).
 - Never invent sources, emails, names or numbers."""
 
 
@@ -144,6 +168,7 @@ def research_company(ai, name, website, settings):
         RESEARCH_SCHEMA,
         "company_research",
         web_search=True,
+        max_searches=12,
     )
     research = check_research(result.data, result.seen_urls)
     research["researched_at"] = datetime.now(timezone.utc).isoformat()
@@ -205,14 +230,30 @@ def check_research(data, seen_urls):
 
         cleaned[name] = fact
 
-    email = cleaned["public_email"]
-    # Some sites hide addresses ("[email protected]"); that's not a real address.
-    if email["value"] and not re.fullmatch(r"[^@\s\[\]]+@[^@\s\[\]]+\.[a-zA-Z]{2,}", email["value"].strip()):
-        email.update(value=None, status="unknown", sources=[])
-        email["note"] = _add_note(email["note"], "The address was hidden or not a real email address.")
-    email["unsuitable_reason"] = email_warning(email["value"])
-    if email["unsuitable_reason"]:
-        email["note"] = _add_note(email["note"], email["unsuitable_reason"])
+    for name in EMAIL_FIELDS:
+        email = cleaned[name]
+        # Some sites hide addresses ("[email protected]"); that's not a real address.
+        if email["value"] and not re.fullmatch(r"[^@\s\[\]]+@[^@\s\[\]]+\.[a-zA-Z]{2,}", email["value"].strip()):
+            email.update(value=None, status="unknown", sources=[])
+            email["note"] = _add_note(email["note"], "The address was hidden or not a real email address.")
+        email["unsuitable_reason"] = email_warning(email["value"])
+        if email["unsuitable_reason"]:
+            email["note"] = _add_note(email["note"], email["unsuitable_reason"])
+    # A shared inbox is never "the owner's email".
+    if cleaned["owner_email"]["unsuitable_reason"]:
+        cleaned["public_email"] = cleaned["public_email"] if cleaned["public_email"]["value"] else dict(cleaned["owner_email"])
+        cleaned["owner_email"] = {"value": None, "status": "unknown", "sources": [], "note": "Only a shared inbox was found.", "unsuitable_reason": ""}
+
+    cleaned["recent_news"] = []
+    for item in data.get("recent_news") or []:
+        kept = [url for url in item.get("sources") or [] if normalize_url(url) in seen]
+        if item.get("headline") and kept:
+            cleaned["recent_news"].append({
+                "headline": item["headline"],
+                "date": item.get("date"),
+                "summary": item.get("summary", ""),
+                "sources": kept,
+            })
 
     cleaned["outreach_context"] = []
     for item in data.get("outreach_context") or []:

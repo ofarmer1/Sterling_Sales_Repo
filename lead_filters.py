@@ -56,6 +56,7 @@ def filter_leads(
     reps_min=None,
     reps_max=None,
     include_unknown=True,
+    min_checks=0,
 ):
     """Return the leads that match every filter that's set. Empty filters match all."""
     search = search.strip().lower()
@@ -79,5 +80,12 @@ def filter_leads(
             continue
         if not _range_matches(lead, "sales_team_size", reps_min, reps_max, include_unknown):
             continue
+        if min_checks and _checks_met(lead) < min_checks:
+            continue
         matches.append(lead)
     return matches
+
+
+def _checks_met(lead):
+    criteria = (lead.get("qualification") or {}).get("criteria") or []
+    return sum(1 for c in criteria if c["result"] == "supported")

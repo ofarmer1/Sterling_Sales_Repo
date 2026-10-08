@@ -24,11 +24,15 @@ You will get facts about one company and the consultant's style preferences.
 
 Rules:
 - Short and direct. Email body under 120 words. Subject under 8 words.
-- Use one or two specific facts from the research, so it's clearly not a mass email.
+- Personal, not a template: mention at least one specific fact about this company
+  from the facts given (recent news is best, then a product or announcement).
+  Only use facts given to you, and don't state estimates as fact.
 - The value: what the company could gain by getting more of its reps to quota.
   Present it as a possible opportunity. Never claim their reps are missing quota
   or invent problems they have.
-- Humor only if it fits naturally. No buzzwords, no flattery, no big promises.
+- Humor only if it fits naturally. No flattery, no big promises.
+- No buzzwords, e.g. synergy, leverage, cutting-edge, game-changer, best-in-class,
+  revolutionize, unlock, empower, seamless, robust, holistic.
 - End with the call to action given.
 - Don't include a signature or sign-off name; it's added separately.
 - Don't invent names, links, numbers or contact details.
@@ -49,6 +53,9 @@ def usable_facts(research):
         if fact["status"] == "estimate":
             label += " (estimate, don't state as fact)"
         lines.append(f"- {label}: {value}")
+    for item in research.get("recent_news") or []:
+        when = f" ({item['date']})" if item.get("date") else ""
+        lines.append(f"- recent news{when}: {item['headline']}. {item.get('summary', '')}")
     for item in research.get("outreach_context") or []:
         lines.append(f"- recent context: {item['fact']}")
     return lines
@@ -100,9 +107,51 @@ def generate_drafts(ai, company_name, research, settings):
     return drafts, result.usage
 
 
-def draft_warnings(drafts):
-    """Things a reviewer should know about a draft."""
+BUZZWORDS = [
+    "synergy", "leverage", "cutting-edge", "game-changer", "game changer", "best-in-class",
+    "revolutionize", "paradigm", "unlock", "empower", "seamless", "robust", "holistic",
+    "world-class", "disrupt", "circle back", "touch base",
+]
+
+_COMMON_WORDS = {
+    "company", "companies", "business", "businesses", "customers", "clients", "services",
+    "service", "software", "solutions", "solution", "products", "product", "provides",
+    "offers", "including", "through", "across", "people", "their", "about", "which",
+    "south", "carolina", "development", "management", "support", "systems", "system",
+}
+
+
+def specific_terms(research):
+    """Distinctive words from the research (news, context, products) to look for in a draft."""
+    texts = [item.get("headline", "") + " " + item.get("summary", "") for item in research.get("recent_news") or []]
+    texts += [item.get("fact", "") for item in research.get("outreach_context") or []]
+    sell = (research.get("what_they_sell") or {}).get("value") or ""
+    texts.append(sell)
+    terms = set()
+    for text in texts:
+        for word in text.replace("/", " ").replace(",", " ").split():
+            word = word.strip(".;:()'\"").lower()
+            if len(word) >= 6 and word.isalpha() and word not in _COMMON_WORDS:
+                terms.add(word)
+    return terms
+
+
+def personalization_warnings(drafts, research):
+    """Flag drafts that could have been sent to any company."""
+    body = drafts["email_body"].lower()
     warnings = []
+    terms = specific_terms(research or {})
+    if terms and not any(term in body for term in terms):
+        warnings.append("Sounds generic: the email doesn't mention anything specific from the research.")
+    used = [word for word in BUZZWORDS if word in body]
+    if used:
+        warnings.append("Buzzwords to cut: " + ", ".join(used) + ".")
+    return warnings
+
+
+def draft_warnings(drafts, research=None):
+    """Things a reviewer should know about a draft."""
+    warnings = personalization_warnings(drafts, research) if research else []
     if len(drafts["linkedin_note"]) > LINKEDIN_LIMIT:
         warnings.append(
             f"LinkedIn note is {len(drafts['linkedin_note'])} characters; "

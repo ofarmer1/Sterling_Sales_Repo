@@ -71,6 +71,21 @@ python -m pytest
 
 These use a fake in-memory database, not Supabase.
 
+## Accounts and signing in
+
+- **Oliver** signs in with username `oliver` (or `ADMIN_USERNAME`) and the
+  `APP_PASSWORD` from secrets. This always works, so he can't be locked out.
+- **Everyone else** gets an account from Oliver in **Settings > Accounts**:
+  a username, a password, and either **Full access** or **View only**.
+  - View only: Leads tab only. Can open companies, read and copy drafts and
+    download the spreadsheet; can't edit, change statuses or Settings, or
+    run any search or research (so it can't spend OpenAI credits).
+- Passwords are stored only as scrypt hashes.
+- "Keep me signed in" remembers the device for 30 days with a cookie. Only a
+  hash of its token is stored, and signing out, a new password, a change of
+  access or removing the account ends it.
+- Five wrong tries in a row lock the sign-in form for a minute.
+
 ## Costs
 
 Research uses OpenAI's web search. The app shows a running estimate on the

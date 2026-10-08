@@ -101,3 +101,64 @@ def test_hidden_email_placeholder_is_not_kept():
     cleaned = check_research(good_research(public_email=fact("[email protected]")), SEEN)
     assert cleaned["public_email"]["value"] is None
     assert cleaned["public_email"]["status"] == "unknown"
+
+
+# ---- Richer research, contacts and personal drafts ------------------------------
+
+from drafting import personalization_warnings, specific_terms, usable_facts
+
+
+def test_news_kept_only_with_seen_sources():
+    data = good_research(recent_news=[
+        {"headline": "Palmetto opens Charleston office", "date": "2026-03", "summary": "New office.",
+         "sources": ["https://example.com/news"]},
+        {"headline": "Invented award", "date": None, "summary": "", "sources": ["https://nowhere.example"]},
+    ])
+    news = check_research(data, SEEN)["recent_news"]
+    assert [n["headline"] for n in news] == ["Palmetto opens Charleston office"]
+
+
+def test_owner_email_must_be_verified_and_not_a_shared_inbox():
+    cleaned = check_research(good_research(owner_email=fact("pat@palmetto.example", status="estimate")), SEEN)
+    assert cleaned["owner_email"]["value"] is None  # guessed: dropped
+    cleaned = check_research(good_research(owner_email=fact("info@palmetto.example")), SEEN)
+    assert cleaned["owner_email"]["value"] is None  # a shared inbox isn't the owner's
+    assert cleaned["public_email"]["value"] == "info@palmetto.example"  # but it's kept as the general inbox
+    cleaned = check_research(good_research(owner_email=fact("pat@palmetto.example")), SEEN)
+    assert cleaned["owner_email"]["value"] == "pat@palmetto.example"
+
+
+def test_writer_gets_news():
+    research = check_research(good_research(recent_news=[
+        {"headline": "Palmetto opens Charleston office", "date": "2026-03", "summary": "", "sources": ["https://example.com/news"]}
+    ]), SEEN)
+    assert any("recent news (2026-03): Palmetto opens Charleston office" in line for line in usable_facts(research))
+
+
+def test_generic_draft_is_flagged_and_specific_one_is_not():
+    research = check_research(good_research(), SEEN)
+    assert "charleston" in specific_terms(research)
+    generic = {"email_body": "Hi Pat, we help sales teams hit quota. Open to a call?", "linkedin_note": ""}
+    specific = {"email_body": "Hi Pat, congrats on the new Charleston office. Open to a call?", "linkedin_note": ""}
+    assert any("Sounds generic" in w for w in personalization_warnings(generic, research))
+    assert personalization_warnings(specific, research) == []
+
+
+def test_buzzwords_are_flagged():
+    research = check_research(good_research(), SEEN)
+    draft = {"email_body": "Charleston news! Let's leverage synergy.", "linkedin_note": ""}
+    warnings = personalization_warnings(draft, research)
+    assert any("leverage" in w and "synergy" in w for w in warnings)
+
+
+def test_min_checks_filter():
+    from lead_filters import filter_leads
+    from qualification import qualify
+    from tests.fake_database import LEAD_DEFAULTS
+    from tests.fake_ai import unknown_fact
+    def lead(name, **changes):
+        r = check_research(good_research(**changes), SEEN)
+        return {**LEAD_DEFAULTS, "name": name, "research": r, "qualification": qualify(r, DEFAULT_SETTINGS)}
+    leads = [lead("Five"), lead("Four", annual_revenue=unknown_fact(ranged=True)), {**LEAD_DEFAULTS, "name": "New"}]
+    assert [l["name"] for l in filter_leads(leads, min_checks=5)] == ["Five"]
+    assert [l["name"] for l in filter_leads(leads, min_checks=4)] == ["Five", "Four"]

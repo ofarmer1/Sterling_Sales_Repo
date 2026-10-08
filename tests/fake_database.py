@@ -51,6 +51,10 @@ class FakeQuery:
         self.action, self.payload = "update", changes
         return self
 
+    def delete(self):
+        self.action = "delete"
+        return self
+
     def _matches(self, row):
         return all(row.get(k) == v for k, v in self.filters.items())
 
@@ -81,6 +85,11 @@ class FakeQuery:
                 saved.append(copy.deepcopy(full))
             return FakeResponse(saved)
 
+        if self.action == "delete":
+            gone = [key for key, row in rows.items() if self._matches(row)]
+            removed = [copy.deepcopy(rows.pop(key)) for key in gone]
+            return FakeResponse(removed)
+
         if self.action == "update":
             if not db.confirm_writes:
                 return FakeResponse([])
@@ -93,7 +102,7 @@ class FakeQuery:
 
         matches = [copy.deepcopy(r) for r in rows.values() if self._matches(r)]
         if self.order_by:
-            matches.sort(key=lambda r: r.get(self.order_by))
+            matches.sort(key=lambda r: (r.get(self.order_by) is None, r.get(self.order_by) or 0))
         return FakeResponse(matches)
 
 

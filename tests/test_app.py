@@ -38,10 +38,11 @@ def make_app(database_keys=True):
     return app
 
 
-def sign_in(app, password=PASSWORD):
+def sign_in(app, password=PASSWORD, username="ofarmer"):
     app.run()
-    app.text_input[0].input(password)
-    app.button[0].click()
+    next(t for t in app.text_input if t.label == "Username").input(username)
+    next(t for t in app.text_input if t.label == "Password").input(password)
+    next(b for b in app.button if b.label == "Sign in").click()
     app.run()
     return app
 
@@ -77,13 +78,13 @@ def test_no_password_configured_keeps_app_locked():
 def test_wrong_password_is_rejected():
     app = sign_in(make_app(), "wrong")
     assert not app.tabs
-    assert any("Wrong password" in e.value for e in app.error)
+    assert any("Wrong username or password" in e.value for e in app.error)
 
 
 def test_right_password_shows_tabs():
     with patch("supabase.create_client", return_value=FakeDatabase()):
         app = sign_in(make_app())
-    assert [t.label for t in app.tabs] == ["Leads", "Find leads", "Settings"]
+    assert [t.label for t in app.tabs] == ["Companies", "Drafts", "Find", "Settings"]
 
 
 def test_secrets_never_appear_on_screen():
@@ -148,4 +149,5 @@ def test_empty_leads_and_find_tabs():
     with patch("supabase.create_client", return_value=FakeDatabase()):
         app = sign_in(make_app())
     assert any("No companies yet" in i.value for i in app.tabs[0].info)
-    assert any("Add companies you already know" in m.value for m in app.tabs[1].markdown)
+    assert any("No drafts yet" in i.value for i in app.tabs[1].info)
+    assert any("Add companies you already know" in m.value for m in app.tabs[2].markdown)

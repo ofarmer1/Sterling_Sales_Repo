@@ -1,4 +1,4 @@
-"""The Leads tab: a list of companies, and a detail view for one of them."""
+"""The Companies and Drafts tabs."""
 
 from datetime import datetime
 
@@ -19,6 +19,8 @@ from leads_store import (
 )
 from qualification import DOES_NOT_MEET, MEETS, NEEDS_REVIEW
 from research import FACT_FIELDS, RANGE_FIELDS
+from contacts import best_contact, linkedin_links
+from snapshot import RESULT_WORDS, buy_box_lines, checks_met, lead_snapshot, short_name, sort_by_checks
 
 AI_SETUP_MESSAGE = (
     "AI research isn't set up yet. Add OPENAI_API_KEY to .streamlit/secrets.toml "
@@ -50,7 +52,8 @@ def flash(message):
     st.session_state["leads_message"] = message
 
 
-def leads_tab(db, ai, settings):
+def leads_tab(db, ai, settings, read_only=False):
+    """The Companies tab: snapshot cards, sorted by buy-box checks met."""
     if db is None:
         st.warning("Connect the database first (see the Settings tab).")
         return
@@ -65,36 +68,35 @@ def leads_tab(db, ai, settings):
         st.error(f"{error}\n\nIf this is new, run supabase/schema.sql again in Supabase.")
         return
 
-    st.caption(no_math(
-        f"AI usage so far: {usage['requests']} requests, {usage['web_searches']} web searches, "
-        f"about ${usage['estimated_cost_usd']:.2f}"
-        + (f" of the ${ai.budget_usd:.2f} budget" if ai is not None and getattr(ai, "budget_usd", None) else "")
-        + ". (Estimate only; check OpenAI's billing page.)"
-    ))
+    if not read_only:
+        st.caption(no_math(
+            f"AI usage so far: {usage['requests']} requests, {usage['web_searches']} web searches, "
+            f"about ${usage['estimated_cost_usd']:.2f}"
+            + (f" of the ${ai.budget_usd:.2f} budget" if ai is not None and getattr(ai, "budget_usd", None) else "")
+            + ". (Estimate only; check OpenAI's billing page.)"
+        ))
+
+    buy_box_section(settings, read_only)
 
     if not leads:
-        st.info("No companies yet. Add some in the Find leads tab.")
+        st.info("No companies yet. Add some in the Find tab.")
         return
 
-    leads = filter_section(leads)
+    # Detail view: one company, opened from its card.
+    open_id = st.session_state.get("open_lead")
+    lead = next((item for item in leads if item["id"] == open_id), None)
+    if lead is not None:
+        if st.button("← Back to all companies"):
+            st.session_state.pop("open_lead", None)
+            st.rerun()
+        show_lead(db, ai, settings, lead, read_only)
+        return
+
+    # List view: a snapshot card per company, best matches first.
+    leads = sort_by_checks(filter_section(leads))
     if not leads:
         st.info("No companies match these filters.")
         return
-
-    st.dataframe(
-        [
-            {
-                "Company": lead["name"],
-                "Status": lead["status"],
-                "Qualification": lead["qualification_result"] or "not checked",
-                "Owner": ((lead.get("research") or {}).get("owner_name") or {}).get("value") or "",
-                "Found by": lead["source"],
-            }
-            for lead in leads
-        ],
-        hide_index=True,
-        width="stretch",
-    )
 
     st.download_button(
         "Download spreadsheet (CSV)",
@@ -102,12 +104,49 @@ def leads_tab(db, ai, settings):
         file_name="sterling-leads.csv",
         mime="text/csv",
     )
+    for item in leads:
+        snapshot_card(item)
 
-    st.divider()
-    names = {lead["id"]: f"{lead['name']} ({lead['status']})" for lead in leads}
-    lead_id = st.selectbox("Open a company", list(names), format_func=names.get)
-    lead = next(item for item in leads if item["id"] == lead_id)
-    show_lead(db, ai, settings, lead)
+
+FIT_COLORS = {"Fits": "green", "Check": "orange", "No fit": "red", "Not checked": "gray"}
+
+
+def buy_box_section(settings, read_only=False):
+    with st.expander("John's buy box (what a good lead looks like)"):
+        for label, value in buy_box_lines(settings):
+            st.markdown(no_math(f"**{label}:** {value}"))
+        if read_only:
+            st.caption("Ask Oliver if any of these should change.")
+        else:
+            st.caption("To change these, use the Settings tab.")
+
+
+def snapshot_card(lead):
+    snap = lead_snapshot(lead)
+    with st.container(border=True):
+        top, button = st.columns([5, 1])
+        color = FIT_COLORS.get(snap["fit"], "gray")
+        checks = f" &nbsp; {snap['checks']}" if snap["checks"] else ""
+        top.markdown(no_math(f"**{snap['name']}** &nbsp; :{color}-badge[{snap['fit']}]{checks}"))
+        if snap["place"]:
+            top.caption(no_math(snap["place"]))
+        if button.button("Open", key=f"open_{lead['id']}"):
+            st.session_state["open_lead"] = lead["id"]
+            st.rerun()
+        st.markdown(no_math(f"**Owner:** {snap['owner']}"))
+        st.markdown(no_math(email_line(snap["email"], snap["email_kind"], snap["email_label"])))
+        st.markdown(no_math(snap["reason"]))
+        st.caption(f"{snap['drafts']} · Status: {snap['status']}")
+        for flag in snap["flags"]:
+            st.markdown(no_math(f":red[⚠ {flag}]"))
+
+
+def email_line(email, kind, label):
+    if kind == "owner":
+        return f"**Email:** {email} :green-badge[Owner]"
+    if kind == "general":
+        return f"**Email:** {email} :orange-badge[General inbox, not the owner]"
+    return "**Email:** :gray-badge[None found]"
 
 
 def filter_section(all_leads):
@@ -125,7 +164,8 @@ def filter_section(all_leads):
         revenue_max = col2.number_input("Revenue at most ($M)", min_value=0.0, value=None, step=1.0)
         reps_min = col1.number_input("Salespeople at least", min_value=0, value=None, step=1)
         reps_max = col2.number_input("Salespeople at most", min_value=0, value=None, step=1)
-        sources = st.multiselect("Found by", ["provided", "discovered"])
+        sources = col1.multiselect("Found by", ["provided", "discovered"])
+        min_checks = col2.slider("At least this many buy-box checks met", 0, 5, 0)
         include_unknown = st.checkbox(
             "Keep companies whose revenue or sales team is unknown", value=True
         )
@@ -144,25 +184,56 @@ def filter_section(all_leads):
         reps_min=reps_min,
         reps_max=reps_max,
         include_unknown=include_unknown,
+        min_checks=min_checks,
     )
     if len(leads) != len(all_leads):
         st.caption(f"Showing {len(leads)} of {len(all_leads)} companies. The download includes only these.")
     return leads
 
 
-def show_lead(db, ai, settings, lead):
+def show_lead(db, ai, settings, lead, read_only=False):
+    snap = lead_snapshot(lead)
+    color = FIT_COLORS.get(snap["fit"], "gray")
     st.subheader(lead["name"])
+    st.markdown(no_math(f":{color}-badge[{snap['fit']}] &nbsp; {snap['checks']}"))
     if lead["website"]:
         st.write(lead["website"])
-    if lead["source"] == "discovered":
-        st.caption(no_math(f"Found by search: {lead['discovery_reason']}"))
-        for url in lead.get("discovery_sources") or []:
-            st.caption(f"- {url}")
 
-    status_section(db, lead)
-    research_section(db, ai, settings, lead)
+    contact_section(lead.get("research") or {}, snap)
     if lead.get("research"):
-        drafts_section(db, ai, settings, lead)
+        drafts_section(db, ai, settings, lead, read_only)
+
+    if read_only:
+        st.markdown(f"**Review status:** {lead['status']}")
+    else:
+        status_section(db, lead)
+    research_section(db, ai, settings, lead, read_only)
+
+    if lead["source"] == "discovered":
+        with st.expander("Why the search found this company"):
+            st.caption(no_math(lead["discovery_reason"]))
+            for url in lead.get("discovery_sources") or []:
+                st.caption(f"- {url}")
+
+
+def contact_section(research, snap):
+    """Who to contact, up front."""
+    with st.container(border=True):
+        st.markdown("#### Contact")
+        st.markdown(no_math(f"**Owner:** {snap['owner']}"))
+        contact = best_contact(research)
+        st.markdown(no_math(email_line(contact["email"], contact["kind"], contact["label"])))
+        if contact["email"]:
+            st.code(contact["email"], language=None)
+        if contact["kind"] == "general":
+            st.caption("This is a shared company inbox, not the owner's own address. Ask for the owner by name.")
+        elif contact["kind"] is None and research:
+            st.caption("No published email. Try the LinkedIn links or the company's contact form.")
+        phone = (research.get("public_phone") or {}).get("value")
+        if phone and (research.get("public_phone") or {}).get("status") != "unknown":
+            st.markdown(f"**Phone:** {phone}")
+        for label, url in linkedin_links(research):
+            st.markdown(f"**{label}:** {url}")
 
 
 def status_section(db, lead):
@@ -185,8 +256,8 @@ def status_section(db, lead):
         st.rerun()
 
 
-def research_section(db, ai, settings, lead):
-    st.markdown("### Research")
+def research_section(db, ai, settings, lead, read_only=False):
+    st.markdown("### Research and buy box")
     if lead.get("research_error"):
         st.error(no_math(f"Last research attempt failed: {lead['research_error']}"))
 
@@ -195,12 +266,17 @@ def research_section(db, ai, settings, lead):
         st.caption(f"Researched: {friendly_time(lead.get('researched_at'))}")
         show_qualification(lead)
         show_research(research, lead.get("research_sources") or [])
+        if read_only:
+            return
         again = st.checkbox(
             "Research again (uses AI credits; drafts are kept)", key=f"again_{lead['id']}"
         )
         if not again:
             return
 
+    if read_only:
+        st.info("Not researched yet.")
+        return
     if ai is None:
         st.info(AI_SETUP_MESSAGE)
         return
@@ -218,6 +294,7 @@ def research_section(db, ai, settings, lead):
 def show_qualification(lead):
     qualification = lead.get("qualification") or {}
     result = lead["qualification_result"]
+    st.markdown("#### How it compares with John's buy box")
     message = no_math(f"**{result}**: {qualification.get('summary', '')}")
     if result == MEETS:
         st.success(message)
@@ -228,8 +305,8 @@ def show_qualification(lead):
     st.dataframe(
         [
             {
-                "Criterion": c["criterion"],
-                "Result": f"{RESULT_ICONS[c['result']]} {c['result']}",
+                "Buy box": short_name(c["criterion"]).capitalize(),
+                "Result": f"{RESULT_ICONS[c['result']]} {RESULT_WORDS[c['result']]}",
                 "Why": c["reason"],
                 "Sources": "\n".join(c["sources"]),
             }
@@ -238,7 +315,7 @@ def show_qualification(lead):
         hide_index=True,
         width="stretch",
     )
-    st.caption("“Supported” means backed by a cited source. " + SOURCE_NOTE)
+    st.caption("“Meets” means backed by a cited source. " + SOURCE_NOTE)
 
 
 def show_research(research, seen_urls):
@@ -261,6 +338,13 @@ def show_research(research, seen_urls):
         st.caption(SOURCE_NOTE)
         st.dataframe(rows, hide_index=True, width="stretch")
 
+    news = research.get("recent_news") or []
+    if news:
+        st.markdown("**Recent news**")
+        for item in news:
+            when = f"{item['date']}: " if item.get("date") else ""
+            st.markdown(no_math(f"- {when}{item['headline']} ({', '.join(item['sources'])})"))
+
     context = research.get("outreach_context") or []
     if context:
         st.markdown("**Useful context for outreach**")
@@ -272,23 +356,21 @@ def show_research(research, seen_urls):
             st.write(url)
 
 
-def recipient_note(research):
-    """Say plainly who the email could go to. The app never picks a recipient."""
-    email = research.get("public_email") or {}
-    owner = (research.get("owner_name") or {}).get("value")
-    if email.get("unsuitable_reason"):
-        st.warning(email["unsuitable_reason"] + " No recipient has been chosen.")
-    elif email.get("value"):
-        st.info(f"Public email found: {email['value']}. It may not reach the owner; check before using it. No recipient has been chosen.")
-    else:
-        who = f" for {owner}" if owner else ""
-        st.info(f"No email address found{who}. No recipient has been chosen; find the right address yourself.")
-
-
-def drafts_section(db, ai, settings, lead):
-    st.markdown("### Drafts")
+def drafts_section(db, ai, settings, lead, read_only=False):
+    st.markdown("### Email draft")
     st.caption("Drafts are for you to review, copy and send yourself. Nothing is sent from here.")
-    recipient_note(lead.get("research") or {})
+
+    if read_only:
+        if not lead.get("email_body"):
+            st.info("No drafts yet.")
+            return
+        st.markdown("**Email subject**")
+        st.code(lead["email_subject"], language=None)
+        st.markdown("**Email**")
+        st.code(lead["email_body"], language=None, wrap_lines=True)
+        st.markdown("**LinkedIn note**")
+        st.code(lead["linkedin_note"], language=None, wrap_lines=True)
+        return
 
     has_drafts = bool(lead.get("email_body"))
     if has_drafts:
@@ -297,7 +379,7 @@ def drafts_section(db, ai, settings, lead):
         elif lead.get("drafts_generated_at"):
             st.caption(f"Written by AI {friendly_time(lead['drafts_generated_at'])}")
 
-        for warning in draft_warnings(lead):
+        for warning in draft_warnings(lead, lead.get("research")):
             st.warning(warning)
 
         with st.form(f"drafts_{lead['id']}"):
@@ -347,3 +429,73 @@ def drafts_section(db, ai, settings, lead):
                 return
         flash("New drafts saved.")
         st.rerun()
+
+
+def drafts_tab(db, read_only=False):
+    """Every draft in one place, waiting for approval first."""
+    if db is None:
+        st.warning("Connect the database first (see the Settings tab).")
+        return
+    if "drafts_message" in st.session_state:
+        st.success(st.session_state.pop("drafts_message"))
+    try:
+        leads = [lead for lead in list_leads(db) if lead.get("email_body")]
+    except LeadsStoreError as error:
+        st.error(str(error))
+        return
+    if not leads:
+        st.info("No drafts yet. Research a company and write drafts first.")
+        return
+
+    waiting = [l for l in leads if l["status"] not in ("approved", "manually contacted")]
+    approved = [l for l in leads if l["status"] == "approved"]
+    contacted = [l for l in leads if l["status"] == "manually contacted"]
+    st.caption(
+        f"{len(waiting)} waiting for approval · {len(approved)} approved · {len(contacted)} contacted. "
+        "Nothing is sent from here: copy each approved email and send it yourself."
+    )
+
+    for title, group in [("Waiting for approval", waiting), ("Approved, ready to send by hand", approved), ("Contacted", contacted)]:
+        if not group:
+            continue
+        st.markdown(f"### {title}")
+        for lead in sort_by_checks(group):
+            draft_card(db, lead, read_only)
+
+
+def draft_card(db, lead, read_only):
+    research = lead.get("research") or {}
+    contact = best_contact(research)
+    with st.container(border=True):
+        st.markdown(no_math(f"**{lead['name']}** &nbsp; {checks_met(lead)[0]} of {checks_met(lead)[1]} checks met"))
+        st.markdown(no_math("To: " + email_line(contact["email"], contact["kind"], contact["label"]).replace("**Email:** ", "")))
+        st.markdown(no_math(f"**Subject:** {lead['email_subject']}"))
+        st.code(lead["email_body"], language=None, wrap_lines=True)
+        for warning in draft_warnings(lead, research):
+            st.warning(warning)
+        with st.expander("LinkedIn note"):
+            st.code(lead["linkedin_note"], language=None, wrap_lines=True)
+        if read_only:
+            return
+        col1, col2, col3 = st.columns(3)
+        if lead["status"] not in ("approved", "manually contacted"):
+            if col1.button("Approve", key=f"approve_{lead['id']}", type="primary"):
+                _set(db, lead, "approved", f"Approved the draft for {lead['name']}.")
+        if lead["status"] == "approved":
+            if col1.button("I sent it", key=f"sent_{lead['id']}",
+                           help="Marks it 'manually contacted' after you've sent it yourself."):
+                _set(db, lead, "manually contacted", f"Marked {lead['name']} as contacted.")
+        if col2.button("Edit in Companies", key=f"edit_{lead['id']}"):
+            st.session_state["open_lead"] = lead["id"]
+            st.session_state["drafts_message"] = f"{lead['name']} is open in the Companies tab."
+            st.rerun()
+
+
+def _set(db, lead, status, message):
+    try:
+        set_status(db, lead["id"], status)
+    except LeadsStoreError as error:
+        st.error(str(error))
+        return
+    st.session_state["drafts_message"] = message
+    st.rerun()

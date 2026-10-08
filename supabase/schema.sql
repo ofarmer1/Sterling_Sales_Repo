@@ -105,3 +105,53 @@ create table if not exists public.usage_log (
 
 alter table public.usage_log enable row level security;
 revoke all on public.usage_log from anon, authenticated;
+
+-- ---------------------------------------------------------------------------
+-- app_users: people who can sign in. Passwords are stored only as scrypt
+-- hashes, never as plain text. Oliver adds people in Settings > Accounts.
+-- (Oliver's own sign-in comes from the APP_PASSWORD secret, so he can never
+-- be locked out.)
+-- ---------------------------------------------------------------------------
+create table if not exists public.app_users (
+    username text primary key check (username ~ '^[a-z0-9._-]{3,40}$'),
+    password_hash text not null,
+    role text not null check (role in ('full', 'view')),
+    created_at timestamptz not null default now(),
+    last_login_at timestamptz
+);
+
+alter table public.app_users enable row level security;
+revoke all on public.app_users from anon, authenticated;
+
+-- ---------------------------------------------------------------------------
+-- app_sessions: "keep me signed in" logins. The browser keeps a random token
+-- in a cookie; only a hash of it is stored here, with an expiry date.
+-- ---------------------------------------------------------------------------
+create table if not exists public.app_sessions (
+    token_hash text primary key,
+    username text not null,
+    role text not null check (role in ('full', 'view')),
+    created_at timestamptz not null default now(),
+    expires_at timestamptz not null
+);
+
+alter table public.app_sessions enable row level security;
+revoke all on public.app_sessions from anon, authenticated;
+
+-- ---------------------------------------------------------------------------
+-- app_invites: one-time invite links Oliver creates so someone can pick their
+-- own username and password. Only a hash of the invite code is stored. Each
+-- invite works once and expires.
+-- ---------------------------------------------------------------------------
+create table if not exists public.app_invites (
+    code_hash text primary key,
+    role text not null check (role in ('full', 'view')),
+    note text not null default '',
+    created_at timestamptz not null default now(),
+    expires_at timestamptz not null,
+    used_at timestamptz,
+    used_by text
+);
+
+alter table public.app_invites enable row level security;
+revoke all on public.app_invites from anon, authenticated;
